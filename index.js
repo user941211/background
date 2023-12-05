@@ -1,197 +1,94 @@
-import React, { useState, useEffect } from 'react';
-import { View, Button, StyleSheet, AppRegistry } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Button, TextInput, Text, AppRegistry, StyleSheet } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
-import { check, PERMISSIONS, RESULTS, request } from 'react-native-permissions';
-import RNPickerSelect from 'react-native-picker-select';
-
-const manager = new BleManager();
+import { checkLocationPermissions } from './src/Permissions';
+import sendDataToServer from './src/ServerCommunicator';
+import { startDeviceScan, handleDeviceSelect } from './src/BleManager';
 
 const App = () => {
+    const [uuid, setUuid] = useState('');
     const [devices, setDevices] = useState([]);
     const [selectedDevice, setSelectedDevice] = useState(null);
-    const [scanInterval, setScanInterval] = useState(null);
+    const [message, setMessage] = useState('');
+    const [serverResponse, setServerResponse] = useState(null);
+
+    const manager = new BleManager();
+    const timeoutRef = useRef(null);
+
+    
     useEffect(() => {
-        Promise.all([
-            check(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION),
-            check(PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION),
-            check(PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION)
-        ])
-            .then(([fineLocationResult, coarseLocationResult, backgroundResult]) => {
-                if (fineLocationResult === RESULTS.DENIED) {
-                    request(PERMISSIONS.ANDROID.ACCESS_FINE_LOCATION).then((result) => { });
-                }
-                if (coarseLocationResult === RESULTS.DENIED) {
-                    request(PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION).then((result) => { });
-                }
-                if (backgroundResult === RESULTS.DENIED) {
-                    request(PERMISSIONS.ANDROID.ACCESS_COARSE_LOCATION).then((result) => { });
-                }
-            })
-            .catch((error) => {
-                console.log('Permission check error:', error);
-            });
+        checkLocationPermissions();
     }, []);
 
     const handleButtonClickWithPermissionRequest = () => {
-        manager.startDeviceScan(null, null, (error, device) => {
-            if (error) {
-                console.log(error);
-                return;
+        //uuid는 16진수로 작성되어야 한다.
+        setMessage(`${uuid} 찾는 중...`);
+        startDeviceScan(manager, setDevices, uuid);
+
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+        }
+
+        // 20초 후에 메시지 변경 및 재검색
+        timeoutRef.current = setTimeout(() => {
+            setMessage('연결에 실패했습니다. 다시 찾기 버튼을 누르십시오');
+
+            // devices 배열에서 첫 번째 장치를 선택
+            const device = devices[0];
+
+            // 선택한 장치가 존재하면 연결 시도
+            if (device) {
+                handleDeviceSelect(manager, device, setDevices, setMacAddress, setMessage, handleButtonClickWithPermissionRequest);
             }
-
-            setDevices(prevDevices => {
-                const deviceIndex = prevDevices.findIndex(d => d.id === device.id);
-                if (deviceIndex >= 0) {
-                    return [...prevDevices.slice(0, deviceIndex), device, ...prevDevices.slice(deviceIndex + 1)];
-                } else {
-                    return [...prevDevices, device];
-                }
-            });
-        });
-
-        // 10초마다 검색을 중지하고 다시 시작
-        setScanInterval(setInterval(() => {
-            manager.stopDeviceScan();
-            setDevices([]);
-            manager.startDeviceScan(null, null, (error, device) => {
-                if (error) {
-                    console.log(error);
-                    return;
-                }
-
-                setDevices(prevDevices => {
-                    const deviceIndex = prevDevices.findIndex(d => d.id === device.id);
-                    if (deviceIndex >= 0) {
-                        return [...prevDevices.slice(0, deviceIndex), device, ...prevDevices.slice(deviceIndex + 1)];
-                    } else {
-                        return [...prevDevices, device];
-                    }
-                });
-            });
-        }, 10000));
+        }, 20000);
     };
 
-    const handleDeviceSelect = (deviceId) => {
-        const device = devices.find(d => d.id === deviceId);
-        manager.stopDeviceScan();
-
-        device.connect()
-            .then((device) => {
-                return device.discoverAllServicesAndCharacteristics();
-            })
-            .then((device) => {
-                return device.services();
-            })
-            .then((services) => {
-                const readCharacteristicPromises = [];
-
-                for (const service of services) {
-                    const characteristics = device.characteristicsForService(service.uuid);
-                    for (const characteristic of characteristics) {
-                        const promise = device.readCharacteristicForService(service.uuid, characteristic.uuid);
-                        readCharacteristicPromises.push(promise);
-                    }
-                }
-
-                return Promise.all(readCharacteristicPromises);
-            })
-            .then((characteristics) => {
-                for (const characteristic of characteristics) {
-                    console.log(characteristic.value);
-                    sendDataToServer(characteristic.value);
-                }
-            })
-            .catch((error) => {
-                //console.error(error);
-                handleButtonClickWithPermissionRequest();
-            });
-    };
-
-    const sendDataToServer = async (data) => {
-        let response = await fetch('https://your_server.com', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                data: data
-            })
-        });
-        let responseJson = await response.json();
-        console.log('[BackgroundFetch] response: ', responseJson);
-    };
+    useEffect(() => {
+        const url = 'https://port-0-pbl-server-57lz2alpkmmh4z.sel4.cloudtype.app/checks';
+        console.log(url + '연결시도 중')
+        const fetchData = async () => {
+            //const url = 'port-0-pbl-server-57lz2alpkmmh4z.sel4.cloudtype.app/checks'; // 요청 URL
+            const response = await sendDataToServer(url);
+            setServerResponse(response);
+        };
+        
+        fetchData();
+    }, []);
+    
 
     useEffect(() => {
         if (selectedDevice) {
-            handleDeviceSelect(selectedDevice);
+            const device = devices.find(device => device.id === selectedDevice);
+            handleDeviceSelect(manager, device, setDevices, handleButtonClickWithPermissionRequest);
         }
     }, [selectedDevice]);
 
-    useEffect(() => {
-        return () => {
-            // 컴포넌트가 언마운트될 때 검색을 중지하고 인터벌을 제거
-            manager.stopDeviceScan();
-            clearInterval(scanInterval);
-        };
-    }, [scanInterval]);
-
     return (
-        <View>
-            <Button onPress={handleButtonClickWithPermissionRequest} title="기기 찾기" />
-            <RNPickerSelect
-                onValueChange={(value) => setSelectedDevice(value)}
-                items={devices.map(device => ({ label: device.name || 'Unknown Device', value: device.id }))}
+        <View style={styles.container}>
+            <TextInput
+                style={styles.input}
+                onChangeText={text => setUuid(text)}
+                value={uuid}
             />
+            <Button onPress={handleButtonClickWithPermissionRequest} title="기기 찾기" />
+            <Text>{message}</Text>
+            <Text>{serverResponse ? serverResponse : 'Loading...'}</Text>
         </View>
     );
 };
-
 const styles = StyleSheet.create({
-    centeredView: {
+    container: {
         flex: 1,
-        justifyContent: "center",
-        alignItems: "center",
-        marginTop: 22
-    },
-    modalView: {
-        margin: 20,
-        backgroundColor: "white",
-        borderRadius: 20,
-        padding: 35,
-        alignItems: "center",
-        shadowColor: "#000",
-        shadowOffset: {
-            width: 0,
-            height: 2
-        },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 5
-    },
-    button: {
-        backgroundColor: "#4ECDC4",
-        padding: 10,
+        justifyContent: 'center',
         alignItems: 'center',
-        borderRadius: 5,
-        margin: 10,
-        verticalAlign: 'middle',
+        padding: 16,
     },
-    closeButton: {
-        backgroundColor: "#2196F3",
-        borderRadius: 5,
-        padding: 10,
-        elevation: 2,
-        marginTop: 15,
-    },
-    text: {
-        color: "white",
-        textAlign: "center"
-    },
-    item: {
-        padding: 10,
-        fontSize: 18,
-        height: 44,
+    input: {
+        height: 40,
+        borderColor: 'gray',
+        borderWidth: 1,
+        width: '100%',
+        marginBottom: 10,
     },
 });
-
 AppRegistry.registerComponent('background', () => App);
