@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Button, Alert, TextInput, Text, AppRegistry, StyleSheet } from 'react-native';
+import { View, Button, Alert, TextInput, TouchableOpacity, Text, AppRegistry, StyleSheet } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
 import { checkLocationPermissions } from './src/Permissions';
 import sendDataToServer from './src/ServerCommunicator';
@@ -14,18 +14,28 @@ const App = () => {
     const [selectedDevice, setSelectedDevice] = useState(null);
     const [message, setMessage] = useState('');
     const [serverResponse, setServerResponse] = useState(null);
+    const [updateTitle, setUpdateTitle] = useState("업데이트");
 
     const manager = new BleManager();
     const timeoutRef = useRef(null);
-
 
     useEffect(() => {
         checkLocationPermissions();
     }, []);
 
     const isHexadecimal = (str) => {
-        return /^(0x|0X)?[0-9A-Fa-f]{4}$/.test(str);
+        return /^[0-9A-F]{4}$/.test(str);
     }
+
+    const handleUpdate = () => {
+        setUpdateTitle("업데이트 중...");
+
+        setTimeout(() => {
+            //Alert.alert("업데이트 알림", "업데이트가 완료되었습니다!!");
+            Alert.alert("업데이트 알림", "최신버전입니다!");
+            setUpdateTitle("업데이트");
+        }, 3000);
+    };
 
     const handleButtonClickWithPermissionRequest = () => {
         //uuid는 16진수로 작성되어야 한다.
@@ -85,17 +95,21 @@ const App = () => {
                 value={uuid}
             />
             {selectedDevice ?
-                <Button onPress={() => setSelectedDevice(null)} title="초기화" /> :
-                <Button onPress={() => { if (!isHexadecimal(selectedDevice)) {
+                <Button style={styles.button} onPress={() => setSelectedDevice(null)} title="초기화" /> :
+                <Button style={styles.button} onPress={() => { if (!isHexadecimal(uuid)) {
                         Alert.alert("입력  오류", "16진수 4글자로 구성되어야 합니다.");
                     } else {handleButtonClickWithPermissionRequest()}
                 }}
                 title="기기 찾기" />
             }
-            <Text>{'16진수 (0~9, 대문자 A부터 F)로 이루어진 4자리 문자열을'}</Text>
-            <Text>{'입력하고 기기찾기 버튼을 눌러주세요'}</Text>
-            <Text>{message}</Text>
-            <Text>{serverResponse ? serverResponse : 'Loading...'}</Text>
+            
+            <Text style={styles.text}>{'16진수 (0~9, 대문자 A부터 F)로 이루어진 4자리 문자열을 입력하고 기기찾기 버튼을 눌러주세요'}</Text>
+            {/* <Text style={styles.text}>{'입력하고 기기찾기 버튼을 눌러주세요'}</Text> */}
+            <Text style={styles.text}>{message}</Text>
+            <Text style={styles.text}>{serverResponse ? serverResponse : 'Loading...'}</Text>
+            <TouchableOpacity style={styles.button} onPress={handleUpdate}>
+                <Text style={styles.buttonText}>{updateTitle}</Text>
+            </TouchableOpacity>
         </View>
     );
 };
@@ -112,6 +126,18 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         width: '100%',
         marginBottom: 10,
+    },
+    button: {
+        width: '60%', // 버튼의 너비를 키웠습니다.
+        height: 50, // 버튼의 높이를 키웠습니다.
+        margin: 20, // 버튼 사이의 간격을 조정했습니다.
+    },
+    buttonText: {
+        fontSize: 18,
+        textAlign: 'center',
+    },
+    text: {
+        margin: 5, // 텍스트 사이의 간격을 조정했습니다.
     },
 });
 AppRegistry.registerComponent('background', () => App);

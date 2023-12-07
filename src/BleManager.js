@@ -1,4 +1,5 @@
 import { BleManager } from 'react-native-ble-plx';
+import axios from 'axios';
 
 const manager = new BleManager();
 
